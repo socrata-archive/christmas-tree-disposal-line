@@ -4,7 +4,7 @@
 # - http://dev.socrata.com
 # - http://www.tropo.com
 #
-# For more details: <insert blog post link>
+# For more details: http://dev.socrata.com/blog/2010/10/28/making-government-data-accessible-by-phone-using-soda-and-tropo/
 #
 
 require 'net/http'
