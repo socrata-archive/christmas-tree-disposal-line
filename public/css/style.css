@@ -35,8 +35,8 @@ body {
 .powered-by {
   padding-top: 20px;
 }
+
 .powered-by img {
   display: block;
-  margin: 20px auto;
-  width: 105px;
+  margin: 10px auto;
 }
