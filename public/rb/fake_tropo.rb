@@ -1,3 +1,8 @@
+# A convenience library so you can fake out your Tropo script when you're
+# running in irb
+#
+# Just "require 'fake_tropo'" in irb, and it'll log Tropo requests to stdout
+
 def answer
   puts "ANSWERING"
 end

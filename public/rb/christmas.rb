@@ -8,13 +8,29 @@
 #
 
 require 'net/http'
-require 'uri'
 require 'json'
+
+# A generic class that allows us easier access to row data
+class Entry
+  def self.setup(columns)
+    # Build up a map of column name -> index so we can access them by name
+    @@col_map = (0...columns.size).inject({}) { |memo, idx|
+      memo[columns[idx]["name"]] = idx
+      memo
+    }
+  end
+
+  def initialize(entry)
+    @entry = entry
+  end
+
+  def [](name)
+    return @entry[@@col_map[name]]
+  end
+end
 
 # Look up facilities given a zip code and type
 def lookup_facilities(zip_code)
-  log "Looking for facilities in zip code #{zip_code}..."
-
   # This looks complicated, but I'm just building the hash that I'll convert to
   # JSON in order to run a dynamic filter against the Socrata API.
   query = {
@@ -67,37 +83,79 @@ def lookup_facilities(zip_code)
   request.content_type = "application/json"
   response = Net::HTTP.start("www.datakc.org", 80){ |http| http.request(request) }
 
-  # Check our response code and output our results
   if response.code != "200"
     log "Error code: #{response.code}"
     log "Body: #{response.body}"
-    say "An error has occurred. I\'m very sorry. Please don\'t hate me."
+    raise "An error has occurred. I\'m very sorry. Please don\'t hate me."
   else
-    results = JSON::parse(response.body)["data"]
-    if results.size <= 0
-      say "Sorry, I did not find any results for your search."
+    body = JSON::parse(response.body)
+    Entry.setup(body["meta"]["view"]["columns"])
+    return JSON::parse(response.body)["data"].collect{ |row| Entry.new(row) }
+  end
+end
+
+# Handles phone requests
+def phone(zip_code)
+  begin
+    facilities = lookup_facilities(zip_code)
+    if facilities.nil? || facilities.size <= 0
+      say "Sorry, I did not find any matches in your area. Please try another zip code."
     else
-      say "I found #{results.size} matches. I'll read them to you now."
-      say results.map{|r| "#{r[9]} at #{r[10]}. Their hours are #{r[15]}." }.join(" or, ")
+      say "I found #{facilities.size} #{facilities.size > 1 ? "matches" : "match"} in your zip code. I'll read them to you now."
+      say facilities.map{ |r| "#{r["Provider Name"]} at #{r["Provider Address"]} in #{r["City"]}. Their hours are #{r["Hours"].strip}." }.join(" Or, ")
     end
+  rescue Exception => e
+    say e.message
+  end
+end
+
+# Handles message requests
+def message(zip_code)
+  begin
+    facilities = lookup_facilities(zip_code)
+    if facilities.nil? || facilities.size <= 0
+      say "I did not find any matches in your area. Please try another zip code."
+    else
+      say "Found #{facilities.size} #{facilities.size > 1 ? "matches" : "match"} in your zip code:"
+      facilities.each do |f|
+        say "#{f["Provider Name"]} at #{f["Provider Address"]} in #{f["City"]}. Hours: #{f["Hours"]}"
+      end
+    end
+  rescue Exception => e
+    say "An error has occurred. I'm sorry for the trouble."
+    log e.message
   end
 end
 
 answer
 sleep(2)
-say "Welcome to the King County Christmas Tree Recycling Line."
 
-# Setting up our options for "ask". We accept 5 digits, either spoken or entered
-# by DTMF, and time out after 10 seconds.
-zipcode_options = { :choices     => "[5 DIGITS]",
-                    :repeat      => 3,
-                    :timeout     => 10,
-                    :onBadChoice => lambda { say 'Invalid entry, please try again.' },
-                    :onTimeout   => lambda { say 'Timeout, please try again.' },
-                    :onChoice    => lambda { |zip| lookup_facilities(zip.value) }
-                  }
+# Decide whether this is text or phone
+if $currentCall.nil?
+  log "Curious. No currentCall. Am I running outside Tropo?"
+elsif $currentCall.initialText.nil?
+  # Phone call
+  say "Welcome to the King County Christmas Tree Recycling Line."
 
-ask 'Enter or say your ZIP code to find a Christmas tree facility in your area.', zipcode_options
-say 'Thank you for using the King County Christmas Tree Recycling Line. Goodbye.'
+  # Setting up our options for "ask". We accept 5 digits, either spoken or entered
+  # by DTMF, and time out after 10 seconds.
+  zipcode_options = { :choices     => "[5 DIGITS]",
+    :repeat      => 3,
+    :timeout     => 10,
+    :onBadChoice => lambda { say 'Invalid entry, please try again.' },
+    :onTimeout   => lambda { say 'Timeout, please try again.' },
+    :onChoice    => lambda { |zip| phone(zip.value) }
+  }
+
+  ask 'Enter or say your ZIP code to find a Christmas tree facility in your area.', zipcode_options
+  say 'Thank you for using the King County Christmas Tree Recycling Line. Goodbye.'
+
+elsif $currentCall.initialText =~ /^\d{5}$/
+  # Text message, proper zip code
+  message($currentCall.initialText)
+else
+  # Text message, invalid zip code
+  say("Please text me a valid zip code to look up Christmas tree disposal facilities in your area.")
+end
 
 hangup
